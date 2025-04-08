@@ -1,0 +1,25 @@
+feature,category,feature_categories,patients,total_category_category,proportion
+ID,moderate,severe,1,17,0.059
+ID,moderate,moderate,11,17,0.647
+ID,moderate,mild,5,17,0.294
+ID,strong,severe,72,94,0.766
+ID,strong,moderate,20,94,0.213
+ID,strong,mild,2,94,0.021
+DD,moderate,severe,1,17,0.059
+DD,moderate,moderate,10,17,0.588
+DD,moderate,mild/none,6,17,0.353
+DD,strong,severe,85,116,0.733
+DD,strong,moderate,27,116,0.233
+DD,strong,mild/none,4,116,0.035
+speech,moderate,non verbal,0,18,0
+speech,moderate,few words,1,18,0.056
+speech,moderate,simple sentences/normal,17,18,0.944
+speech,strong,non verbal,61,97,0.629
+speech,strong,few words,29,97,0.299
+speech,strong,simple sentences/normal,7,97,0.072
+epilepsy,moderate,yes,11,19,0.579
+epilepsy,moderate,1 episode,4,19,0.211
+epilepsy,moderate,no,4,19,0.211
+epilepsy,strong,yes,68,120,0.567
+epilepsy,strong,1 episode,8,120,0.067
+epilepsy,strong,no,44,120,0.367

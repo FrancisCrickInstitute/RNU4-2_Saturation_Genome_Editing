@@ -1,0 +1,2 @@
+amplicon	hg19_start
+RNU42	120729754

@@ -1,0 +1,2 @@
+amplicon	HDR_5_SNV	HDR_3_SNV	cut_pos	cut_end	mut_start	mut_end
+RNU42	22-X-C	200-X-G	24	5	49	200
