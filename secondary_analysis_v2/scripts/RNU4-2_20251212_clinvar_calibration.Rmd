@@ -1,0 +1,224 @@
+## Conversion of RNU4-2 function scores from haploid HAP1 cells to evidence codes for clinical variant interpretation following the ACMG-based points system. 
+
+Packages and color schemes
+```{r}
+#Load packages needed
+library(plyr)
+library(dplyr)
+library(gam)
+require(tidyverse)
+require(ggplot2)
+require(gridExtra)
+require(mclust)
+library(mixtools)
+library(reshape2)
+library(ggrepel)
+library(tidyr)
+
+#Defining colour schemes
+category_colors = c('ReNU' = '#e63946','UKBB/AllofUs' = '#456990', 'unobserved' = '#49beaa')
+
+#read csv of supp table 1 withscores in - [replace path below as needed]
+data <- read.table("/Users/findlag/Downloads/Supp_table_1.csv", sep=",", header=TRUE)
+
+#fill empty entries outside of transcript with NA
+data[data == ""] <- NA
+#remove variants outside transcript for this analysis
+data<-data %>%
+  drop_na(HGVS_transcript) %>%
+  mutate(category=case_when(category=="ReNU_syndrome" ~ "ReNU", TRUE ~ category))
+
+data$variant_type = factor(data$Type, levels=c("SNV","insertion","deletion"))
+
+#convert NAs in pop counts to 0;  create a combined All of Us and UKB allele count
+data[which(is.na(data$AoU_AC)),]$AoU_AC <- 0
+data[which(is.na(data$UKBiobank_AC)),]$UKBiobank_AC <- 0
+data$AoU_UKB_comb_AC <- 0 
+data$AoU_UKB_comb_AC <- data$UKBiobank_AC+data$AoU_AC
+
+#create "plot position" to adjust insertions to between correct nt positions for plotting
+data$plot_position <- 0
+data[which(!(data$Type == "insertion" | data$Type == "control_insertion" )),]$plot_position <- data[which(!(data$Type == "insertion" | data$Type == "control_insertion" )),]$nucleotide
+data[which((data$Type == "insertion" | data$Type == "control_insertion" )),]$plot_position <- data[which((data$Type == "insertion" | data$Type == "control_insertion" )),]$nucleotide+0.5
+
+#define function scores from neutral set of variants (defined by designed control insertions)
+RNU4_2_null_fss <- data[which(data$Type == "control_insertion"),]$function_score_mean 
+#calculate mean and standard deviation of the neutral scores
+RNU4_2_null_mean <- mean(RNU4_2_null_fss)
+RNU4_2_null_sd <- sd(RNU4_2_null_fss)
+RNU4_2_null_min <- min(data[which(as.character(data$Type) %in% c("control_insertion")),c("function_score_mean")])
+#count significantly depleted variants
+RNU4_2_signif_count <- length(data[which(data$qvalues < 0.01),c("function_score_mean")])
+RNU4_2_signif_count
+#define the threshold that separates significant and non-significant (only for plotting)
+function_score_threshold <- max(data[which(data$qvalues < 0.01),c("function_score_mean")])+.001905
+#range of nmer insertions designed to be LoF
+range_pos_controls <- range(data[which(data$Type_expanded == 'nmer insertion'),c("function_score_mean")])
+range_pos_controls
+#stats on population variants for text
+pop_var_ct <- length(which(data$category == 'UKBB/AllofUs'))
+pop_var_dep_ct <- length(which(data$category == 'UKBB/AllofUs' & data$qvalues < 0.01))
+pop_var_neutral_ct <- length(which(data$category == 'UKBB/AllofUs' & data$qvalues >= 0.01))
+pop_var_neutral_fraction <- pop_var_neutral_ct/pop_var_ct
+unobserved_var_ct <- length(which(data$category == 'unobserved'))
+unobserved_var_neutral_ct <- length(which(data$category == 'unobserved' & data$qvalues >= 0.01))
+unobserved_var_neutral_ct/unobserved_var_ct
+#focusing on SNVs for these counts, as SNVs were installed across whole transcript
+pop_var_SNV_ct <- length(which(data$category == 'UKBB/AllofUs' & data$Type == 'SNV'))
+length(which(data$Type == 'SNV'))
+median(data[which(data$Type == 'SNV'),c("CADD_score")])
+median(data[which(data$Type == 'SNV' & data$category == 'UKBB/AllofUs'),c("CADD_score")])
+median(data[which(data$Type == 'SNV' & data$category == 'ReNU'),c("CADD_score")])
+median(data[which(data$Type == 'SNV' & data$category == 'UKBB/AllofUs'),c("CADD_score")])
+length(which(data$Type == 'SNV' & data$category == 'UKBB/AllofUs' & data$CADD_score >= 18.89))
+length(which(data$Type == 'SNV' & data$category == 'UKBB/AllofUs' ))
+length(which(data$Type == 'SNV' & data$qvalues > 0.01 & data$CADD_score >= 18.89))
+length(which(data$Type == 'SNV' & data$qvalues > 0.01 ))
+length(which(data$Type == 'SNV' & data$qvalues < 0.01 & data$category == 'UKBB/AllofUs' ))
+length(which(data$Type == 'SNV' & data$category == 'UKBB/AllofUs' ))
+#variant depletion counts in new critical regions (n.62-70, including insertions at n.61_62, and n.75-78)
+length(which(data$qvalues < 0.01 & ((data$plot_position > 61.25 & data$plot_position < 70.25 )|(data$plot_position > 74.75 & data$plot_position < 78.25))))
+length(which(((data$plot_position > 61.25 & data$plot_position < 70.25 )|(data$plot_position > 74.75 & data$plot_position < 78.25))))
+#same by SNVs only
+length(which(data$Type == 'SNV' & data$qvalues < 0.01 & ((data$plot_position > 61.25 & data$plot_position < 70.25 )|(data$plot_position > 74.75 & data$plot_position < 78.25))))
+length(which(data$Type == 'SNV' & ((data$plot_position > 61.25 & data$plot_position < 70.25 )|(data$plot_position > 74.75 & data$plot_position < 78.25))))
+
+#outside new critical region variant depletion count
+length(which(data$qvalues < 0.01 & !((data$plot_position > 61.25 & data$plot_position < 70.25 )|(data$plot_position > 74.75 & data$plot_position < 78.25))))
+length(which(!((data$plot_position > 61.25 & data$plot_position < 70.25 )|(data$plot_position > 74.75 & data$plot_position < 78.25))))
+
+####
+####
+#### Calibrating function scores to evidence strengths
+
+#analysis of pathogenic variants from Nava et al. 2025.
+nava_et_al_PLP <- c('n.62T>C','n.63T>C','n.64dup','n.64_65insT','n.65_66insT','n.65A>G','n.66A>G','n.67A>G','n.68A>C','n.69C>T','n.70T>C','n.72_73del','n.75C>G','n.76C>T','n.76_77insT','n.77_78insG','n.77_78insT','n.78A>C')
+ReNU_category <- data[which(data$category == 'ReNU'),c("HGVS_transcript")]
+#NOTE that 'n.72_73del' is a 2-bp deletion from Nava et al not assayed here. 'n.63T>G' is deemed pathogenic for ReNU but is not in Nava et al., hence there are 17 variants in this pathogenic set defined independently
+nava_PLP_assayed <- intersect(nava_et_al_PLP,ReNU_category)
+
+## Mixture modelling with mclust
+# Defining truthset -- neutral controls are those with over 100 allele counts in combined population ( "_c_100")
+UKB_AoU_c_100_variants <- data[which((data$AoU_UKB_comb_AC)> 100),c('HGVS_transcript')]
+
+truthset_c_100_df <- data[which(data$HGVS_transcript %in% c(nava_PLP_assayed,UKB_AoU_c_100_variants)),]
+truthset_c_100_df$numeric_label <- NA
+truthset_c_100_df[which(truthset_c_100_df$HGVS_transcript %in% nava_PLP_assayed),]$numeric_label <- 1
+truthset_c_100_df[which(truthset_c_100_df$HGVS_transcript %in% UKB_AoU_c_100_variants),]$numeric_label <- 0
+
+#### GMM with Mclust, clustering on function score
+gmm_c_100_1v <- Mclust(truthset_c_100_df$function_score_mean, G=2, modelNames=c("V"))
+summary(gmm_c_100_1v)
+
+path_index_c_100_1v <- which.min(gmm_c_100_1v$parameters$mean)
+truthset_c_100_df$prob_pathogenic <- gmm_c_100_1v$z[, path_index_c_100_1v]
+
+cr_variants <- which((data$plot_position > 61.25 & data$plot_position < 79.75))
+
+#use model to estimate probability of pathogenicity based on function score of each variant
+#only applying this to CR variants, as this is the only location variants have been linked to ReNU (dom. NDD)
+data$prob_pathogenic_c_100 <- NA
+data[cr_variants,]$prob_pathogenic_c_100 <- predict(gmm_c_100_1v, newdata = data[cr_variants,]$function_score_mean)$z[,path_index_c_100_1v]
+
+#assuming neutral prior of 0.5 because the approximate fraction of CR variants that cause ReNU is unknown
+prior_prob <- 0.5
+#defining OddsPath thresholds for assigning evidence codes. Not using PS3_very_strong (350).
+Threshold <- c(-Inf, 0.053, 0.23, 0.48, 2.1, 4.3, 18.7, Inf)
+
+Evidence_Labels <- c("BS3", "BS3_mod", "BS3_supp", "indeterminate", "PS3_supp", "PS3_mod", "PS3")
+#calculate OddsPath for each variant
+data$OddsPath <- NA
+data[cr_variants,]$OddsPath <- (data[cr_variants,]$prob_pathogenic_c_100*(1-prior_prob))/((1-data[cr_variants,]$prob_pathogenic_c_100)*prior_prob)
+#convert OddsPath to evidence code
+data$evidence_code <- NA
+data[cr_variants,]$evidence_code <- as.character(cut(data[cr_variants,]$OddsPath, breaks = Threshold, labels = Evidence_Labels))
+
+
+#Stats for reporting on benign set:
+range(data[which(data$HGVS_transcript %in% UKB_AoU_c_100_variants),c("function_score_mean")])
+median(data[which(data$HGVS_transcript %in% UKB_AoU_c_100_variants),c("function_score_mean")])
+mean(data[which(data$HGVS_transcript %in% UKB_AoU_c_100_variants),c("function_score_mean")])
+sd(data[which(data$HGVS_transcript %in% UKB_AoU_c_100_variants),c("function_score_mean")])
+
+#Stats on reporting for the gold-standard ReNU variants:
+range(data[which(data$HGVS_transcript %in% nava_PLP_assayed),c("function_score_mean")])
+median(data[which(data$HGVS_transcript %in% nava_PLP_assayed),c("function_score_mean")])
+mean(data[which(data$HGVS_transcript %in% nava_PLP_assayed),c("function_score_mean")])
+sd(data[which(data$HGVS_transcript %in% nava_PLP_assayed),c("function_score_mean")])
+range(data[which(data$HGVS_transcript %in% nava_PLP_assayed),c("OddsPath")])
+data[which(data$HGVS_transcript %in% nava_PLP_assayed),c("evidence_code")]
+
+#stats on all variants assigned evidence codes
+length(data[which((data$plot_position > 61.25 & data$plot_position <79.75)),c("HGVS_transcript")])
+#key stats - 69 variants in CR with PS3 evidence
+length(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "PS3"),c("HGVS_transcript")])
+#38 variants in CR with BS3 evidence
+length(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "BS3"),c("HGVS_transcript")])
+#16 of 18 ReNU syndrome variants receive PS3 strong, 1 mod, 1 int
+data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$category == "ReNU"),c("evidence_code")]
+
+#determining the function score breaks that delineate evidence strengths in the model
+min(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "BS3"),c("function_score_mean")])
+max(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "BS3_mod" & (data$function_score_mean < 0)),c("function_score_mean")])
+# -0.15 is between BS3 and BS3_mod
+min(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "BS3_mod"),c("function_score_mean")])
+max(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "BS3_supp"),c("function_score_mean")])
+# -0.24 is between BS3_mod and BS3_supp
+min(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "BS3_supp"),c("function_score_mean")])
+max(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "indeterminate"),c("function_score_mean")])
+# -0.28 is between BS3_supp and indeterminate
+min(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "indeterminate"),c("function_score_mean")])
+max(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "PS3_supp"),c("function_score_mean")])
+# -0.325 is between PS3_supp and indeterminate
+min(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "PS3_supp"),c("function_score_mean")])
+max(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "PS3_mod"),c("function_score_mean")])
+# -0.350 is between PS3_mod and PS3_supp
+min(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "PS3_mod"),c("function_score_mean")])
+max(data[which((data$plot_position > 61.25 & data$plot_position <79.75) & data$evidence_code == "PS3"),c("function_score_mean")])
+# -0.45 is between PS3_mod and PS3
+
+#checking prob_pathogenic as model output
+ggplot(data[cr_variants,], aes(x= function_score_mean, y=prob_pathogenic_c_100))+geom_jitter(alpha=1,height=0.00,width=0.00,aes(color=category))+theme(panel.background = element_rect(fill = 'white', colour = 'white'))+theme(legend.title=element_blank(),legend.position = "None",legend.key = element_blank(),axis.line.x = element_line(colour = "grey50"),axis.line.y = element_line(colour = "grey50"))+ylab('Prob. pathogenic')+xlab("Function score")+theme(panel.background = element_rect(fill = 'white', colour = 'white'))+theme(text = element_text(size=12),axis.text.y = element_text(size=10),axis.text.x = element_text(size=10))+geom_vline(xintercept=-0.302, lty=3)+scale_color_manual(values=category_colors)+geom_hline(yintercept=0.0, lty=3)+geom_hline(yintercept=0.5, lty=3)
+
+##Supplementary Fig. 5. OddsPath by functino score with lines denoting evidence codes.  
+#Export to supplementary figure - 3" x 5"
+ggplot(data[cr_variants,], aes(x= function_score_mean, y=log10(OddsPath)))+geom_jitter(alpha=1,height=0.00,width=0.00,aes(color=category))+theme(panel.background = element_rect(fill = 'white', colour = 'white'))+theme(legend.title=element_blank(),legend.position = "None",legend.key = element_blank(),axis.line.x = element_line(colour = "grey50"),axis.line.y = element_line(colour = "grey50"))+ylab('OddsPath (log10)')+xlab("Function score")+theme(text = element_text(size=12),axis.text.y = element_text(size=10),axis.text.x = element_text(size=10))+geom_vline(xintercept=-0.90, lty=3,colour = "grey50")+geom_vline(xintercept=-0.302, lty=3,colour = "grey50")+geom_vline(xintercept=0, lty=3,colour = "grey50")+scale_color_manual(values=category_colors)+geom_hline(yintercept=log10(0.053),colour = "grey50", lty=2)+geom_hline(yintercept=log10(0.23), lty=2, colour = "grey50")+geom_hline(yintercept=log10(0.48),colour = "grey50", lty=2)+geom_hline(yintercept=log10(18.7), lty=2, colour = "grey50")+geom_hline(yintercept=log10(4.3), lty=2, colour = "grey50")+geom_hline(yintercept=log10(2.1), lty=2, colour = "grey50") +scale_y_continuous(trans=scales::pseudo_log_trans(base=10), breaks = c(log10(0.053), log10(0.23), log10(0.48),log10(2.1),log10(4.3),log10(18.7)), expand = expansion(0))+coord_cartesian(clip = "off")
+
+#Output this data table with evidence codes added
+#write.csv(data, file="[PASTE_PATH]_evidence_codes.csv",row.names = FALSE)
+```
+
+## For calculating additional statisitcs reported in the manuscript
+```{r}
+#correlation between combined AC and function scores
+cor.test(data$function_score_mean, data$AoU_UKB_comb_AC, method = "spearman")
+
+#Lack of depleted variants among those most frequently observed in population controls:
+#  No variants seen over 91 times are scored significantly
+length(data[which(data$AoU_UKB_comb_AC > 91),c("qvalues")])
+min(data[which(data$AoU_UKB_comb_AC > 91),c("qvalues")])
+
+#numbers for labelling variants remaining at different thresholds in Supplementary Figure 2:
+length(which(data$UKBiobank_AC > 10 & data$AoU_AC >10 & data$variant_type == 'SNV'))
+length(which(data$UKBiobank_AC > 20 & data$AoU_AC >20 & data$variant_type == 'SNV'))
+length(which(data$UKBiobank_AC > 40 & data$AoU_AC >40 & data$variant_type == 'SNV'))
+length(which(data$UKBiobank_AC > 60 & data$AoU_AC >60 & data$variant_type == 'SNV'))
+length(which(data$UKBiobank_AC > 80 & data$AoU_AC >80 & data$variant_type == 'SNV'))
+
+#stats for text re: cadd:
+#min CADD of ReNU SNVs
+min(data[which(data$category == 'ReNU' & data$Type == 'SNV'),c("CADD_score")])
+#number of SNVs in gene also seen in pop controls - 346
+length(data[which(data$category == 'UKBB/AllofUs' & data$Type == 'SNV'),c("CADD_score")])
+#number of SNVs in gene also seen in pop controls with CADD scores above lowest for ReNU SNVs
+length(data[which(data$category == 'UKBB/AllofUs' & data$Type == 'SNV' & data$CADD_score >= 18.89),c("CADD_score")])
+#stat on how many SNVs with CADD > 18.89 were neutral
+length(data[which(data$qvalues > 0.01 & data$Type == 'SNV' & data$CADD_score >= 18.89),c("CADD_score")])
+length(data[which(data$qvalues > 0.01 & data$Type == 'SNV'),c("CADD_score")])
+183/329
+
+#calculation of number of individuals in UKB and AoU with an SGE depleted allele outside CR
+#this math assumes no compound hets for depleted variants, which has been confirmed
+AoU_SGE_depleted_rate <- ((sum(data[which(!(data$plot_position > 61.25 & data$plot_position <79.75) & data$qvalues <0.01),c("AoU_AC")])-1))/414840 #subtracting 1 to not count the individual with 2 SGE depleted alleles twice
+UKB_SGE_depleted_rate <- (sum(data[which(!(data$plot_position > 61.25 & data$plot_position <79.75) & data$qvalues <0.01),c("UKBiobank_AC")])/490640)
+```
